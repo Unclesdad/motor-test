@@ -100,52 +100,37 @@ class MotorEncoder:
         return self.direction
 
 class DRV8833Controller:
-    def __init__(self, ain1_pin, ain2_pin, bin1_pin, bin2_pin, 
-                 enc_a_pins=None, enc_b_pins=None, pwm_freq=1000):
+    def __init__(self, ain1_pin, ain2_pin, enc_a_pins=None, pwm_freq=1000):
         """
-        Initialize DRV8833 motor controller with optional encoders
+        Initialize DRV8833 motor controller with optional encoder (Motor A only)
         
         Args:
             ain1_pin: GPIO pin for motor A input 1
             ain2_pin: GPIO pin for motor A input 2  
-            bin1_pin: GPIO pin for motor B input 1
-            bin2_pin: GPIO pin for motor B input 2
             enc_a_pins: Tuple of (channel_a, channel_b) pins for motor A encoder
-            enc_b_pins: Tuple of (channel_a, channel_b) pins for motor B encoder
             pwm_freq: PWM frequency in Hz (default 1000)
         """
         self.ain1 = ain1_pin
         self.ain2 = ain2_pin
-        self.bin1 = bin1_pin
-        self.bin2 = bin2_pin
         
         # Setup GPIO
         GPIO.setmode(GPIO.BCM)
-        GPIO.setup([self.ain1, self.ain2, self.bin1, self.bin2], GPIO.OUT)
+        GPIO.setup([self.ain1, self.ain2], GPIO.OUT)
         
         # Setup PWM for speed control
         self.pwm_a1 = GPIO.PWM(self.ain1, pwm_freq)
         self.pwm_a2 = GPIO.PWM(self.ain2, pwm_freq)
-        self.pwm_b1 = GPIO.PWM(self.bin1, pwm_freq)
-        self.pwm_b2 = GPIO.PWM(self.bin2, pwm_freq)
         
         # Start PWM with 0% duty cycle (stopped)
         self.pwm_a1.start(0)
         self.pwm_a2.start(0)
-        self.pwm_b1.start(0)
-        self.pwm_b2.start(0)
         
-        # Setup encoders if provided
+        # Setup encoder if provided
         self.encoder_a = None
-        self.encoder_b = None
         
         if enc_a_pins:
             self.encoder_a = MotorEncoder(enc_a_pins[0], enc_a_pins[1], "Motor A")
             print(f"Motor A encoder initialized on pins {enc_a_pins}")
-        
-        if enc_b_pins:
-            self.encoder_b = MotorEncoder(enc_b_pins[0], enc_b_pins[1], "Motor B")
-            print(f"Motor B encoder initialized on pins {enc_b_pins}")
         
         # Status monitoring thread
         self.monitoring = False
@@ -174,76 +159,58 @@ class DRV8833Controller:
         self.pwm_a2.ChangeDutyCycle(100)
     
     def motor_b_forward(self, speed=100):
-        """Move motor B forward at specified speed (0-100%)"""
-        speed = max(0, min(100, speed))
-        self.pwm_b1.ChangeDutyCycle(speed)
-        self.pwm_b2.ChangeDutyCycle(0)
+        """Motor B removed - this function does nothing"""
+        pass
     
     def motor_b_backward(self, speed=100):
-        """Move motor B backward at specified speed (0-100%)"""
-        speed = max(0, min(100, speed))
-        self.pwm_b1.ChangeDutyCycle(0)
-        self.pwm_b2.ChangeDutyCycle(speed)
+        """Motor B removed - this function does nothing"""
+        pass
     
     def motor_b_stop(self):
-        """Stop motor B"""
-        self.pwm_b1.ChangeDutyCycle(0)
-        self.pwm_b2.ChangeDutyCycle(0)
+        """Motor B removed - this function does nothing"""
+        pass
     
     def motor_b_brake(self):
-        """Brake motor B (both pins high)"""
-        self.pwm_b1.ChangeDutyCycle(100)
-        self.pwm_b2.ChangeDutyCycle(100)
+        """Motor B removed - this function does nothing"""
+        pass
     
     def move_forward(self, speed=100):
-        """Move both motors forward (robot moves forward)"""
+        """Move motor A forward only"""
         self.motor_a_forward(speed)
-        self.motor_b_forward(speed)
     
     def move_backward(self, speed=100):
-        """Move both motors backward (robot moves backward)"""
+        """Move motor A backward only"""
         self.motor_a_backward(speed)
-        self.motor_b_backward(speed)
     
     def turn_left(self, speed=100):
-        """Turn left (right motor forward, left motor backward)"""
-        self.motor_a_backward(speed)  # Assuming A is left motor
-        self.motor_b_forward(speed)   # Assuming B is right motor
+        """Turn left (motor A backward)"""
+        self.motor_a_backward(speed)
     
     def turn_right(self, speed=100):
-        """Turn right (left motor forward, right motor backward)"""
-        self.motor_a_forward(speed)   # Assuming A is left motor
-        self.motor_b_backward(speed)  # Assuming B is right motor
+        """Turn right (motor A forward)"""
+        self.motor_a_forward(speed)
     
     def stop_all(self):
-        """Stop both motors"""
+        """Stop motor A"""
         self.motor_a_stop()
-        self.motor_b_stop()
     
     def brake_all(self):
-        """Brake both motors"""
+        """Brake motor A"""
         self.motor_a_brake()
-        self.motor_b_brake()
     
     # Encoder access methods
-    def get_encoder_positions(self):
-        """Get both encoder positions as tuple (motor_a_pos, motor_b_pos)"""
-        pos_a = self.encoder_a.get_position() if self.encoder_a else 0
-        pos_b = self.encoder_b.get_position() if self.encoder_b else 0
-        return (pos_a, pos_b)
+    def get_encoder_position(self):
+        """Get encoder position for motor A"""
+        return self.encoder_a.get_position() if self.encoder_a else 0
     
-    def get_encoder_speeds(self):
-        """Get both encoder speeds in RPM as tuple (motor_a_rpm, motor_b_rpm)"""
-        rpm_a = self.encoder_a.get_rpm() if self.encoder_a else 0.0
-        rpm_b = self.encoder_b.get_rpm() if self.encoder_b else 0.0
-        return (rpm_a, rpm_b)
+    def get_encoder_speed(self):
+        """Get encoder speed in RPM for motor A"""
+        return self.encoder_a.get_rpm() if self.encoder_a else 0.0
     
-    def reset_encoders(self):
-        """Reset both encoder positions to zero"""
+    def reset_encoder(self):
+        """Reset encoder position to zero"""
         if self.encoder_a:
             self.encoder_a.reset_position()
-        if self.encoder_b:
-            self.encoder_b.reset_position()
     
     def move_distance(self, distance_pulses, speed=50, timeout=10):
         """
@@ -254,12 +221,12 @@ class DRV8833Controller:
             speed: Motor speed (0-100%)
             timeout: Maximum time to wait (seconds)
         """
-        if not (self.encoder_a and self.encoder_b):
-            print("Error: Encoders required for distance-based movement")
+        if not self.encoder_a:
+            print("Error: Encoder required for distance-based movement")
             return False
         
-        # Reset encoders
-        self.reset_encoders()
+        # Reset encoder
+        self.reset_encoder()
         start_time = time.time()
         
         print(f"Moving {distance_pulses} pulses at {speed}% speed...")
@@ -269,11 +236,10 @@ class DRV8833Controller:
         
         try:
             while True:
-                pos_a, pos_b = self.get_encoder_positions()
-                avg_position = (abs(pos_a) + abs(pos_b)) / 2
+                position = self.get_encoder_position()
                 
                 # Check if we've reached the target
-                if avg_position >= distance_pulses:
+                if abs(position) >= distance_pulses:
                     break
                 
                 # Check for timeout
@@ -285,27 +251,28 @@ class DRV8833Controller:
                 time.sleep(0.01)
         
         finally:
-            # Stop motors
+            # Stop motor
             self.stop_all()
-            final_pos = self.get_encoder_positions()
-            print(f"Final positions: Motor A: {final_pos[0]}, Motor B: {final_pos[1]}")
+            final_pos = self.get_encoder_position()
+            print(f"Final position: Motor A: {final_pos}")
             return True
     
     def turn_angle(self, angle_pulses, speed=50, timeout=10):
         """
         Turn by a specific angle measured in encoder pulses
         Positive angle = right turn, negative = left turn
+        Note: With single motor, this just moves forward/backward
         """
-        if not (self.encoder_a and self.encoder_b):
-            print("Error: Encoders required for angle-based turning")
+        if not self.encoder_a:
+            print("Error: Encoder required for angle-based movement")
             return False
         
-        self.reset_encoders()
+        self.reset_encoder()
         start_time = time.time()
         
-        print(f"Turning {angle_pulses} pulses at {speed}% speed...")
+        print(f"Moving {angle_pulses} pulses at {speed}% speed...")
         
-        # Determine turn direction
+        # Determine direction
         if angle_pulses > 0:
             self.turn_right(speed)
         else:
@@ -314,11 +281,9 @@ class DRV8833Controller:
         
         try:
             while True:
-                pos_a, pos_b = self.get_encoder_positions()
-                # For turning, we want the difference between encoders
-                turn_amount = abs(abs(pos_a) - abs(pos_b))
+                position = abs(self.get_encoder_position())
                 
-                if turn_amount >= angle_pulses:
+                if position >= angle_pulses:
                     break
                 
                 if time.time() - start_time > timeout:
@@ -329,8 +294,8 @@ class DRV8833Controller:
         
         finally:
             self.stop_all()
-            final_pos = self.get_encoder_positions()
-            print(f"Final positions: Motor A: {final_pos[0]}, Motor B: {final_pos[1]}")
+            final_pos = self.get_encoder_position()
+            print(f"Final position: Motor A: {final_pos}")
             return True
     
     def start_monitoring(self, interval=0.5):
@@ -354,10 +319,10 @@ class DRV8833Controller:
     def _monitor_loop(self, interval):
         """Internal monitoring loop"""
         while self.monitoring:
-            pos_a, pos_b = self.get_encoder_positions()
-            rpm_a, rpm_b = self.get_encoder_speeds()
+            position = self.get_encoder_position()
+            rpm = self.get_encoder_speed()
             
-            print(f"Positions: A={pos_a:6d}, B={pos_b:6d} | Speeds: A={rpm_a:6.1f} RPM, B={rpm_b:6.1f} RPM")
+            print(f"Position: A={position:6d} | Speed: A={rpm:6.1f} RPM")
             time.sleep(interval)
     
     def cleanup(self):
@@ -366,8 +331,6 @@ class DRV8833Controller:
         self.stop_all()
         self.pwm_a1.stop()
         self.pwm_a2.stop()
-        self.pwm_b1.stop()
-        self.pwm_b2.stop()
         GPIO.cleanup()
 
 def demo_with_encoders(controller):
@@ -386,8 +349,8 @@ def demo_with_encoders(controller):
         time.sleep(3)
         controller.stop_all()
         
-        pos_a, pos_b = controller.get_encoder_positions()
-        print(f"After 3 seconds: Motor A moved {pos_a} pulses, Motor B moved {pos_b} pulses")
+        pos = controller.get_encoder_position()
+        print(f"After 3 seconds: Motor A moved {pos} pulses")
         
         time.sleep(2)
         
@@ -405,13 +368,13 @@ def demo_with_encoders(controller):
         
         # Speed test
         print("\n=== Speed Ramping Test ===")
-        controller.reset_encoders()
+        controller.reset_encoder()
         for speed in range(20, 81, 10):
             print(f"Speed: {speed}%")
             controller.move_forward(speed)
             time.sleep(1)
-            rpm_a, rpm_b = controller.get_encoder_speeds()
-            print(f"  Current speeds: A={rpm_a:.1f} RPM, B={rpm_b:.1f} RPM")
+            rpm = controller.get_encoder_speed()
+            print(f"  Current speed: A={rpm:.1f} RPM")
         
         controller.stop_all()
         controller.stop_monitoring()
@@ -427,17 +390,14 @@ if __name__ == "__main__":
     # Define your GPIO pin connections
     AIN1_PIN = 18  # Motor A input 1
     AIN2_PIN = 19  # Motor A input 2
-    BIN1_PIN = 20  # Motor B input 1
-    BIN2_PIN = 21  # Motor B input 2
     
     # Encoder pins (adjust according to your wiring)
     ENC_A_PINS = (2, 3)   # Motor A encoder: (Channel A, Channel B)
-    ENC_B_PINS = (4, 5)   # Motor B encoder: (Channel A, Channel B)
     
-    # Create controller instance with encoders
+    # Create controller instance with encoder
     motors = DRV8833Controller(
-        AIN1_PIN, AIN2_PIN, BIN1_PIN, BIN2_PIN,
-        enc_a_pins=ENC_A_PINS, enc_b_pins=ENC_B_PINS
+        AIN1_PIN, AIN2_PIN,
+        enc_a_pins=ENC_A_PINS
     )
     
     try:
@@ -470,13 +430,13 @@ if __name__ == "__main__":
                 motors.stop_all()
                 print("Stopped")
             elif cmd == 'r':
-                motors.reset_encoders()
-                print("Encoders reset")
+                motors.reset_encoder()
+                print("Encoder reset")
             elif cmd == 'p':
-                pos = motors.get_encoder_positions()
-                speeds = motors.get_encoder_speeds()
-                print(f"Positions: A={pos[0]}, B={pos[1]}")
-                print(f"Speeds: A={speeds[0]:.1f} RPM, B={speeds[1]:.1f} RPM")
+                pos = motors.get_encoder_position()
+                speed = motors.get_encoder_speed()
+                print(f"Position: A={pos}")
+                print(f"Speed: A={speed:.1f} RPM")
             elif cmd == 'm':
                 if monitoring:
                     motors.stop_monitoring()
