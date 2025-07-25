@@ -343,7 +343,7 @@ def demo_with_encoders(controller):
         
         # Test basic movement with encoder feedback
         print("\n=== Basic Movement Test ===")
-        controller.reset_encoders()
+        controller.reset_encoder()
         print("Moving forward for 3 seconds...")
         controller.move_forward(60)
         time.sleep(3)
