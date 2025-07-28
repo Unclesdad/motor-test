@@ -46,42 +46,51 @@ class MotorEncoder:
     
     def _encoder_callback(self, channel):
         """Interrupt callback for encoder changes"""
-        current_time = time.time()
-        a_state = GPIO.input(self.pin_a)
-        b_state = GPIO.input(self.pin_b)
-        
-        # Quadrature decoding
-        if a_state != self.last_a_state:
-            if a_state == b_state:
-                self.position += 1
-                self.direction = 1
-            else:
-                self.position -= 1
-                self.direction = -1
-        
-        elif b_state != self.last_b_state:
-            if a_state != b_state:
-                self.position += 1
-                self.direction = 1
-            else:
-                self.position -= 1
-                self.direction = -1
-        
-        # Calculate speed (pulses per second)
-        time_diff = current_time - self.last_time
-        if time_diff > 0:
-            pulse_rate = 1.0 / time_diff  # pulses per second
-            self.speed_buffer.append(pulse_rate * self.direction)
+        try:
+            current_time = time.time()
+            a_state = GPIO.input(self.pin_a)
+            b_state = GPIO.input(self.pin_b)
             
-            # Calculate average speed (smooth out noise)
-            if len(self.speed_buffer) > 0:
-                avg_speed = sum(self.speed_buffer) / len(self.speed_buffer)
-                # Convert to RPM (assuming 200 pulses per revolution - adjust for your encoder)
-                self.rpm = (avg_speed * 60) / 200
-        
-        self.last_a_state = a_state
-        self.last_b_state = b_state
-        self.last_time = current_time
+            # Check for None values (invalid reads)
+            if a_state is None or b_state is None:
+                return
+                
+            # Quadrature decoding
+            if a_state != self.last_a_state:
+                if a_state == b_state:
+                    self.position += 1
+                    self.direction = 1
+                else:
+                    self.position -= 1
+                    self.direction = -1
+            
+            elif b_state != self.last_b_state:
+                if a_state != b_state:
+                    self.position += 1
+                    self.direction = 1
+                else:
+                    self.position -= 1
+                    self.direction = -1
+            
+            # Calculate speed (pulses per second)
+            time_diff = current_time - self.last_time
+            if time_diff > 0:
+                pulse_rate = 1.0 / time_diff  # pulses per second
+                self.speed_buffer.append(pulse_rate * self.direction)
+                
+                # Calculate average speed (smooth out noise)
+                if len(self.speed_buffer) > 0:
+                    avg_speed = sum(self.speed_buffer) / len(self.speed_buffer)
+                    # Convert to RPM (assuming 200 pulses per revolution - adjust for your encoder)
+                    self.rpm = (avg_speed * 60) / 200
+            
+            self.last_a_state = a_state
+            self.last_b_state = b_state
+            self.last_time = current_time
+            
+        except Exception as e:
+            # Silently handle any encoder errors to prevent crashes
+            pass
     
     def get_position(self):
         """Get current encoder position"""
