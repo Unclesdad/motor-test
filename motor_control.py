@@ -99,64 +99,64 @@ class MotorEncoder:
         """Get current direction: 1=forward, -1=backward, 0=stopped"""
         return self.direction
 
-class DRV8833Controller:
-    def __init__(self, ain1_pin, ain2_pin, enc_a_pins=None, pwm_freq=1000):
+class MotorController:
+    def __init__(self, in1_pin, in2_pin, enc_a_pins=None, pwm_freq=1000):
         """
-        Initialize DRV8833 motor controller with optional encoder (Motor A only)
+        Initialize motor controller with IN1, IN2 pins
         
         Args:
-            ain1_pin: GPIO pin for motor A input 1
-            ain2_pin: GPIO pin for motor A input 2  
-            enc_a_pins: Tuple of (channel_a, channel_b) pins for motor A encoder
+            in1_pin: GPIO pin for motor input 1
+            in2_pin: GPIO pin for motor input 2
+            enc_a_pins: Tuple of (channel_a, channel_b) pins for encoder
             pwm_freq: PWM frequency in Hz (default 1000)
         """
-        self.ain1 = ain1_pin
-        self.ain2 = ain2_pin
+        self.in1 = in1_pin
+        self.in2 = in2_pin
         
         # Setup GPIO
         GPIO.setmode(GPIO.BCM)
-        GPIO.setup([self.ain1, self.ain2], GPIO.OUT)
+        GPIO.setup([self.in1, self.in2], GPIO.OUT)
         
         # Setup PWM for speed control
-        self.pwm_a1 = GPIO.PWM(self.ain1, pwm_freq)
-        self.pwm_a2 = GPIO.PWM(self.ain2, pwm_freq)
+        self.pwm1 = GPIO.PWM(self.in1, pwm_freq)
+        self.pwm2 = GPIO.PWM(self.in2, pwm_freq)
         
         # Start PWM with 0% duty cycle (stopped)
-        self.pwm_a1.start(0)
-        self.pwm_a2.start(0)
+        self.pwm1.start(0)
+        self.pwm2.start(0)
         
         # Setup encoder if provided
         self.encoder_a = None
         
         if enc_a_pins:
             self.encoder_a = MotorEncoder(enc_a_pins[0], enc_a_pins[1], "Motor A")
-            print(f"Motor A encoder initialized on pins {enc_a_pins}")
+            print(f"Motor encoder initialized on pins {enc_a_pins}")
         
         # Status monitoring thread
         self.monitoring = False
         self.monitor_thread = None
     
-    def motor_a_forward(self, speed=100):
-        """Move motor A forward at specified speed (0-100%)"""
+    def motor_forward(self, speed=100):
+        """Move motor forward at specified speed (0-100%)"""
         speed = max(0, min(100, speed))
-        self.pwm_a1.ChangeDutyCycle(speed)
-        self.pwm_a2.ChangeDutyCycle(0)
+        self.pwm1.ChangeDutyCycle(speed)
+        self.pwm2.ChangeDutyCycle(0)
     
-    def motor_a_backward(self, speed=100):
-        """Move motor A backward at specified speed (0-100%)"""
+    def motor_backward(self, speed=100):
+        """Move motor backward at specified speed (0-100%)"""
         speed = max(0, min(100, speed))
-        self.pwm_a1.ChangeDutyCycle(0)
-        self.pwm_a2.ChangeDutyCycle(speed)
+        self.pwm1.ChangeDutyCycle(0)
+        self.pwm2.ChangeDutyCycle(speed)
     
-    def motor_a_stop(self):
-        """Stop motor A"""
-        self.pwm_a1.ChangeDutyCycle(0)
-        self.pwm_a2.ChangeDutyCycle(0)
+    def motor_stop(self):
+        """Stop motor"""
+        self.pwm1.ChangeDutyCycle(0)
+        self.pwm2.ChangeDutyCycle(0)
     
-    def motor_a_brake(self):
-        """Brake motor A (both pins high)"""
-        self.pwm_a1.ChangeDutyCycle(100)
-        self.pwm_a2.ChangeDutyCycle(100)
+    def motor_brake(self):
+        """Brake motor (both pins high)"""
+        self.pwm1.ChangeDutyCycle(100)
+        self.pwm2.ChangeDutyCycle(100)
     
     def motor_b_forward(self, speed=100):
         """Motor B removed - this function does nothing"""
@@ -175,28 +175,28 @@ class DRV8833Controller:
         pass
     
     def move_forward(self, speed=100):
-        """Move motor A forward only"""
-        self.motor_a_forward(speed)
+        """Move motor forward"""
+        self.motor_forward(speed)
     
     def move_backward(self, speed=100):
-        """Move motor A backward only"""
-        self.motor_a_backward(speed)
+        """Move motor backward"""
+        self.motor_backward(speed)
     
     def turn_left(self, speed=100):
-        """Turn left (motor A backward)"""
-        self.motor_a_backward(speed)
+        """Turn left (motor backward)"""
+        self.motor_backward(speed)
     
     def turn_right(self, speed=100):
-        """Turn right (motor A forward)"""
-        self.motor_a_forward(speed)
+        """Turn right (motor forward)"""
+        self.motor_forward(speed)
     
     def stop_all(self):
-        """Stop motor A"""
-        self.motor_a_stop()
+        """Stop motor"""
+        self.motor_stop()
     
     def brake_all(self):
-        """Brake motor A"""
-        self.motor_a_brake()
+        """Brake motor"""
+        self.motor_brake()
     
     # Encoder access methods
     def get_encoder_position(self):
@@ -254,7 +254,7 @@ class DRV8833Controller:
             # Stop motor
             self.stop_all()
             final_pos = self.get_encoder_position()
-            print(f"Final position: Motor A: {final_pos}")
+            print(f"Final position: Motor: {final_pos}")
             return True
     
     def turn_angle(self, angle_pulses, speed=50, timeout=10):
@@ -295,7 +295,7 @@ class DRV8833Controller:
         finally:
             self.stop_all()
             final_pos = self.get_encoder_position()
-            print(f"Final position: Motor A: {final_pos}")
+            print(f"Final position: Motor: {final_pos}")
             return True
     
     def start_monitoring(self, interval=0.5):
@@ -329,8 +329,8 @@ class DRV8833Controller:
         """Clean up GPIO resources"""
         self.stop_monitoring()
         self.stop_all()
-        self.pwm_a1.stop()
-        self.pwm_a2.stop()
+        self.pwm1.stop()
+        self.pwm2.stop()
         GPIO.cleanup()
 
 def demo_with_encoders(controller):
@@ -343,7 +343,7 @@ def demo_with_encoders(controller):
         
         # Test basic movement with encoder feedback
         print("\n=== Basic Movement Test ===")
-        controller.reset_encoder()
+        controller.reset_encoders()
         print("Moving forward for 3 seconds...")
         controller.move_forward(60)
         time.sleep(3)
@@ -387,17 +387,17 @@ def demo_with_encoders(controller):
         controller.stop_all()
 
 if __name__ == "__main__":
-    # Define your GPIO pin connections
-    AIN1_PIN = 18  # Motor A input 1
-    AIN2_PIN = 19  # Motor A input 2
+    # Define your GPIO pin connections for your motor driver
+    IN1_PIN = 18  # Motor input 1
+    IN2_PIN = 19  # Motor input 2
     
     # Encoder pins (adjust according to your wiring)
-    ENC_A_PINS = (2, 3)   # Motor A encoder: (Channel A, Channel B)
+    ENC_PINS = (2, 3)   # Motor encoder: (Channel A, Channel B)
     
     # Create controller instance with encoder
-    motors = DRV8833Controller(
-        AIN1_PIN, AIN2_PIN,
-        enc_a_pins=ENC_A_PINS
+    motors = MotorController(
+        IN1_PIN, IN2_PIN,
+        enc_a_pins=ENC_PINS
     )
     
     try:
