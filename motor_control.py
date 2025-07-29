@@ -32,9 +32,9 @@ class MotorEncoder:
         self.speed_buffer = deque(maxlen=10)  # Rolling average for speed
         self.rpm = 0.0
         
-        # Setup GPIO pins (no pull-up since physical resistors are present)
-        GPIO.setup(self.pin_a, GPIO.IN)
-        GPIO.setup(self.pin_b, GPIO.IN)
+        # Setup GPIO pins (with pull-down to prevent floating)
+        GPIO.setup(self.pin_a, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
+        GPIO.setup(self.pin_b, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
         
         # Read initial states
         self.last_a_state = GPIO.input(self.pin_a)
