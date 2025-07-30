@@ -33,6 +33,12 @@ class MotorEncoder:
         GPIO.setup(MOTOR_IN1, GPIO.OUT, initial=GPIO.LOW)
         GPIO.setup(MOTOR_IN2, GPIO.OUT, initial=GPIO.LOW)
         
+        # Setup PWM for speed control
+        self.pwm1 = GPIO.PWM(MOTOR_IN1, 1000)  # 1kHz frequency
+        self.pwm2 = GPIO.PWM(MOTOR_IN2, 1000)  # 1kHz frequency
+        self.pwm1.start(0)  # Start with 0% duty cycle
+        self.pwm2.start(0)
+        
         # Setup encoder pins with pull-up resistors
         GPIO.setup(ENCODER_A, GPIO.IN, pull_up_down=GPIO.PUD_UP)
         GPIO.setup(ENCODER_B, GPIO.IN, pull_up_down=GPIO.PUD_UP)
@@ -47,7 +53,7 @@ class MotorEncoder:
         # Ensure motor is stopped
         self.stop_motor()
         
-        print("Motor and encoder initialized")
+        print("Motor and encoder initialized with PWM control")
         print(f"Motor pins: IN1={MOTOR_IN1}, IN2={MOTOR_IN2}")
         print(f"Encoder pins: A={ENCODER_A}, B={ENCODER_B}")
         print("Motor should be stopped now")
@@ -84,31 +90,28 @@ class MotorEncoder:
         except Exception as e:
             print(f"Encoder B callback error: {e}")
     
-    def motor_forward(self):
-        """Run motor forward (clockwise when looking at motor face)"""
-        # Based on your testing: IN1=LOW, IN2=HIGH gives fast clockwise
-        GPIO.output(MOTOR_IN1, GPIO.LOW)
-        GPIO.output(MOTOR_IN2, GPIO.HIGH)
-        print("Motor: Forward (clockwise)")
+    def motor_forward(self, speed=50):
+        """Run motor forward with PWM speed control"""
+        self.pwm1.ChangeDutyCycle(0)
+        self.pwm2.ChangeDutyCycle(speed)
+        print(f"Motor: Forward at {speed}% speed")
     
-    def motor_reverse(self):
-        """Run motor in reverse (counter-clockwise when looking at motor face)"""
-        # Based on your testing: IN1=HIGH, IN2=LOW gives slow counter-clockwise
-        # This suggests a power issue - let's try PWM for consistent speed
-        GPIO.output(MOTOR_IN1, GPIO.HIGH)
-        GPIO.output(MOTOR_IN2, GPIO.LOW)
-        print("Motor: Reverse (counter-clockwise) - may be slower due to power issue")
+    def motor_reverse(self, speed=50):
+        """Run motor reverse with PWM speed control"""
+        self.pwm1.ChangeDutyCycle(speed)
+        self.pwm2.ChangeDutyCycle(0)
+        print(f"Motor: Reverse at {speed}% speed")
     
     def stop_motor(self):
         """Stop the motor"""
-        GPIO.output(MOTOR_IN1, GPIO.LOW)
-        GPIO.output(MOTOR_IN2, GPIO.LOW)
+        self.pwm1.ChangeDutyCycle(0)
+        self.pwm2.ChangeDutyCycle(0)
         print("Motor: Stopped")
     
     def brake_motor(self):
         """Brake the motor (both pins high)"""
-        GPIO.output(MOTOR_IN1, GPIO.HIGH)
-        GPIO.output(MOTOR_IN2, GPIO.HIGH)
+        self.pwm1.ChangeDutyCycle(100)
+        self.pwm2.ChangeDutyCycle(100)
         print("Motor: Braking")
     
     def get_encoder_count(self):
@@ -149,16 +152,16 @@ class MotorEncoder:
         self.stop_motor()
         time.sleep(0.5)  # Give time for motor to stop
         
+        # Stop PWM
+        self.pwm1.stop()
+        self.pwm2.stop()
+        
         # Remove interrupt handlers
         try:
             GPIO.remove_event_detect(ENCODER_A)
             GPIO.remove_event_detect(ENCODER_B)
         except:
             pass
-        
-        # Ensure pins are LOW
-        GPIO.output(MOTOR_IN1, GPIO.LOW)
-        GPIO.output(MOTOR_IN2, GPIO.LOW)
         
         # Clean up GPIO
         GPIO.cleanup()
@@ -170,27 +173,38 @@ def main():
     
     try:
         print("\nMotor Control Commands:")
-        print("f - Forward")
-        print("r - Reverse") 
+        print("f - Forward (50% speed)")
+        print("F - Forward (75% speed)")
+        print("r - Reverse (50% speed)") 
+        print("R - Reverse (75% speed)")
         print("s - Stop")
         print("b - Brake")
+        print("1-9 - Set speed (10%-90%) then use f/r")
         print("p - Print status")
         print("z - Reset encoder count")
         print("l - Save encoder log")
         print("q - Quit")
         print("\nStarting motor control loop...")
+        speed = 50  # Default speed
         
         while True:
-            command = input("\nEnter command: ").lower().strip()
+            command = input(f"\nEnter command (current speed: {speed}%): ").lower().strip()
             
             if command == 'f':
-                motor.motor_forward()
+                motor.motor_forward(speed)
+            elif command == 'F':
+                motor.motor_forward(75)
             elif command == 'r':
-                motor.motor_reverse()
+                motor.motor_reverse(speed)
+            elif command == 'R':
+                motor.motor_reverse(75)
             elif command == 's':
                 motor.stop_motor()
             elif command == 'b':
                 motor.brake_motor()
+            elif command in '123456789':
+                speed = int(command) * 10
+                print(f"Speed set to {speed}%")
             elif command == 'p':
                 motor.print_status()
             elif command == 'z':
@@ -203,8 +217,9 @@ def main():
                 print("Invalid command")
             
             # Always show current status after command
-            time.sleep(0.1)  # Small delay
-            motor.print_status()
+            if command not in 'pzl123456789':
+                time.sleep(0.1)  # Small delay
+                motor.print_status()
     
     except KeyboardInterrupt:
         print("\nProgram interrupted by user")
