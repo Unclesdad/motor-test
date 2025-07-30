@@ -1,149 +1,260 @@
 #!/usr/bin/env python3
 """
-Debug script to test motor behavior step by step
+N20 Motor Control with Encoder Recording
+Hardware setup:
+- Motor control: IN1=GPIO18, IN2=GPIO19
+- Encoder signals: Yellow=GPIO2, Green=GPIO3
+- DRV8833 motor driver
 """
 
 import RPi.GPIO as GPIO
 import time
+import threading
+from datetime import datetime
 
 # GPIO Pin definitions
-MOTOR_IN1 = 18
-MOTOR_IN2 = 19
-ENCODER_A = 2
-ENCODER_B = 3
+MOTOR_IN1 = 18  # Motor control pin 1
+MOTOR_IN2 = 19  # Motor control pin 2
+ENCODER_A = 2   # Yellow wire (Channel A)
+ENCODER_B = 3   # Green wire (Channel B)
 
-def setup_gpio():
-    """Initialize GPIO pins"""
-    GPIO.setmode(GPIO.BCM)
-    GPIO.setwarnings(False)
-    
-    # Setup motor pins with explicit initial state
-    GPIO.setup(MOTOR_IN1, GPIO.OUT, initial=GPIO.LOW)
-    GPIO.setup(MOTOR_IN2, GPIO.OUT, initial=GPIO.LOW)
-    
-    # Setup encoder pins
-    GPIO.setup(ENCODER_A, GPIO.IN, pull_up_down=GPIO.PUD_UP)
-    GPIO.setup(ENCODER_B, GPIO.IN, pull_up_down=GPIO.PUD_UP)
-    
-    print("GPIO initialized")
-    print(f"IN1 (GPIO{MOTOR_IN1}): {GPIO.input(MOTOR_IN1)}")
-    print(f"IN2 (GPIO{MOTOR_IN2}): {GPIO.input(MOTOR_IN2)}")
+# Global variables for encoder counting
+encoder_count = 0
+encoder_lock = threading.Lock()
+encoder_log = []
 
-def test_motor_states():
-    """Test different motor states"""
-    print("\n=== MOTOR STATE TESTS ===")
-    
-    # Test 1: Both LOW (should be stopped)
-    print("\n1. Both pins LOW (STOP)")
-    GPIO.output(MOTOR_IN1, GPIO.LOW)
-    GPIO.output(MOTOR_IN2, GPIO.LOW)
-    print(f"IN1: {GPIO.input(MOTOR_IN1)}, IN2: {GPIO.input(MOTOR_IN2)}")
-    input("Press Enter when you've observed the motor behavior...")
-    
-    # Test 2: Forward
-    print("\n2. IN1=HIGH, IN2=LOW (FORWARD)")
-    GPIO.output(MOTOR_IN1, GPIO.HIGH)
-    GPIO.output(MOTOR_IN2, GPIO.LOW)
-    print(f"IN1: {GPIO.input(MOTOR_IN1)}, IN2: {GPIO.input(MOTOR_IN2)}")
-    input("Press Enter when you've observed the motor behavior...")
-    
-    # Test 3: Stop again
-    print("\n3. Both pins LOW (STOP)")
-    GPIO.output(MOTOR_IN1, GPIO.LOW)
-    GPIO.output(MOTOR_IN2, GPIO.LOW)
-    print(f"IN1: {GPIO.input(MOTOR_IN1)}, IN2: {GPIO.input(MOTOR_IN2)}")
-    input("Press Enter when you've observed the motor behavior...")
-    
-    # Test 4: Reverse
-    print("\n4. IN1=LOW, IN2=HIGH (REVERSE)")
-    GPIO.output(MOTOR_IN1, GPIO.LOW)
-    GPIO.output(MOTOR_IN2, GPIO.HIGH)
-    print(f"IN1: {GPIO.input(MOTOR_IN1)}, IN2: {GPIO.input(MOTOR_IN2)}")
-    input("Press Enter when you've observed the motor behavior...")
-    
-    # Test 5: Stop
-    print("\n5. Both pins LOW (STOP)")
-    GPIO.output(MOTOR_IN1, GPIO.LOW)
-    GPIO.output(MOTOR_IN2, GPIO.LOW)
-    print(f"IN1: {GPIO.input(MOTOR_IN1)}, IN2: {GPIO.input(MOTOR_IN2)}")
-    input("Press Enter when you've observed the motor behavior...")
-    
-    # Test 6: Brake
-    print("\n6. Both pins HIGH (BRAKE)")
-    GPIO.output(MOTOR_IN1, GPIO.HIGH)
-    GPIO.output(MOTOR_IN2, GPIO.HIGH)
-    print(f"IN1: {GPIO.input(MOTOR_IN1)}, IN2: {GPIO.input(MOTOR_IN2)}")
-    input("Press Enter when you've observed the motor behavior...")
-    
-    # Test 7: Final stop
-    print("\n7. Both pins LOW (FINAL STOP)")
-    GPIO.output(MOTOR_IN1, GPIO.LOW)
-    GPIO.output(MOTOR_IN2, GPIO.LOW)
-    print(f"IN1: {GPIO.input(MOTOR_IN1)}, IN2: {GPIO.input(MOTOR_IN2)}")
-
-def test_encoder_readings():
-    """Test encoder signal readings"""
-    print("\n=== ENCODER TESTS ===")
-    print("Reading encoder signals for 10 seconds...")
-    print("Manually turn the motor shaft and observe readings:")
-    
-    start_time = time.time()
-    last_a = GPIO.input(ENCODER_A)
-    last_b = GPIO.input(ENCODER_B)
-    
-    print(f"Initial: A={last_a}, B={last_b}")
-    
-    while time.time() - start_time < 10:
-        current_a = GPIO.input(ENCODER_A)
-        current_b = GPIO.input(ENCODER_B)
-        
-        if current_a != last_a or current_b != last_b:
-            print(f"Change: A={current_a}, B={current_b}")
-            last_a = current_a
-            last_b = current_b
-        
-        time.sleep(0.01)
-
-def check_pin_states_on_boot():
-    """Check what the pin states are when script starts"""
-    print("\n=== INITIAL PIN STATES ===")
-    print("Before GPIO setup:")
-    # This might cause warnings, but helps debug
-    try:
+class MotorEncoder:
+    def __init__(self):
+        # Setup GPIO
         GPIO.setmode(GPIO.BCM)
-        print(f"GPIO{MOTOR_IN1} state: {GPIO.input(MOTOR_IN1)}")
-        print(f"GPIO{MOTOR_IN2} state: {GPIO.input(MOTOR_IN2)}")
-    except:
-        print("Could not read pin states before setup")
+        GPIO.setwarnings(False)
+        
+        # Setup motor control pins as outputs, initially LOW
+        GPIO.setup(MOTOR_IN1, GPIO.OUT, initial=GPIO.LOW)
+        GPIO.setup(MOTOR_IN2, GPIO.OUT, initial=GPIO.LOW)
+        
+        # Setup encoder pins with pull-up resistors
+        GPIO.setup(ENCODER_A, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+        GPIO.setup(ENCODER_B, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+        
+        # Wait a moment for pins to stabilize
+        time.sleep(0.1)
+        
+        # Setup interrupt handlers for encoder with longer bouncetime
+        GPIO.add_event_detect(ENCODER_A, GPIO.RISING, callback=self.encoder_callback_a, bouncetime=5)
+        GPIO.add_event_detect(ENCODER_B, GPIO.RISING, callback=self.encoder_callback_b, bouncetime=5)
+        
+        # Ensure motor is stopped
+        self.stop_motor()
+        
+        print("Motor and encoder initialized")
+        print(f"Motor pins: IN1={MOTOR_IN1}, IN2={MOTOR_IN2}")
+        print(f"Encoder pins: A={ENCODER_A}, B={ENCODER_B}")
+        print("Motor should be stopped now")
+    
+    def encoder_callback_a(self, channel):
+        """Callback for encoder channel A - simplified counting"""
+        global encoder_count, encoder_log
+        try:
+            with encoder_lock:
+                encoder_count += 1
+                timestamp = time.time()
+                encoder_log.append({
+                    'time': timestamp,
+                    'count': encoder_count,
+                    'channel': 'A'
+                })
+                print(f"Encoder A pulse: {encoder_count}")
+        except Exception as e:
+            print(f"Encoder A callback error: {e}")
+    
+    def encoder_callback_b(self, channel):
+        """Callback for encoder channel B - simplified counting"""
+        global encoder_count, encoder_log
+        try:
+            with encoder_lock:
+                encoder_count += 1
+                timestamp = time.time()
+                encoder_log.append({
+                    'time': timestamp,
+                    'count': encoder_count,
+                    'channel': 'B'
+                })
+                print(f"Encoder B pulse: {encoder_count}")
+        except Exception as e:
+            print(f"Encoder B callback error: {e}")
+    
+    def motor_forward(self):
+        """Run motor forward (clockwise when looking at motor face)"""
+        # Based on your testing: IN1=LOW, IN2=HIGH gives fast clockwise
+        GPIO.output(MOTOR_IN1, GPIO.LOW)
+        GPIO.output(MOTOR_IN2, GPIO.HIGH)
+        print("Motor: Forward (clockwise)")
+    
+    def motor_reverse(self):
+        """Run motor in reverse (counter-clockwise when looking at motor face)"""
+        # Based on your testing: IN1=HIGH, IN2=LOW gives slow counter-clockwise
+        # This suggests a power issue - let's try PWM for consistent speed
+        GPIO.output(MOTOR_IN1, GPIO.HIGH)
+        GPIO.output(MOTOR_IN2, GPIO.LOW)
+        print("Motor: Reverse (counter-clockwise) - may be slower due to power issue")
+    
+    def stop_motor(self):
+        """Stop the motor"""
+        GPIO.output(MOTOR_IN1, GPIO.LOW)
+        GPIO.output(MOTOR_IN2, GPIO.LOW)
+        print("Motor: Stopped")
+    
+    def brake_motor(self):
+        """Brake the motor (both pins high)"""
+        GPIO.output(MOTOR_IN1, GPIO.HIGH)
+        GPIO.output(MOTOR_IN2, GPIO.HIGH)
+        print("Motor: Braking")
+    
+    def get_encoder_count(self):
+        """Get current encoder count thread-safely"""
+        with encoder_lock:
+            return encoder_count
+    
+    def reset_encoder_count(self):
+        """Reset encoder count to zero"""
+        global encoder_count, encoder_log
+        with encoder_lock:
+            encoder_count = 0
+            encoder_log.clear()
+        print("Encoder count reset")
+    
+    def print_status(self):
+        """Print current status"""
+        count = self.get_encoder_count()
+        revolutions = count / 7.0  # 7 pulses per revolution according to spec
+        print(f"Encoder count: {count}, Revolutions: {revolutions:.2f}")
+    
+    def save_encoder_log(self, filename=None):
+        """Save encoder log to file"""
+        if filename is None:
+            filename = f"encoder_log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+        
+        with encoder_lock:
+            with open(filename, 'w') as f:
+                f.write("timestamp,count,direction,channel,a_state,b_state\n")
+                for entry in encoder_log:
+                    f.write(f"{entry['time']:.6f},{entry['count']},{entry['direction']},{entry['channel']},{entry['a_state']},{entry['b_state']}\n")
+        
+        print(f"Encoder log saved to {filename}")
+    
+    def cleanup(self):
+        """Clean up GPIO and ensure motor is stopped"""
+        print("Stopping motor and cleaning up...")
+        self.stop_motor()
+        time.sleep(0.5)  # Give time for motor to stop
+        
+        # Remove interrupt handlers
+        try:
+            GPIO.remove_event_detect(ENCODER_A)
+            GPIO.remove_event_detect(ENCODER_B)
+        except:
+            pass
+        
+        # Ensure pins are LOW
+        GPIO.output(MOTOR_IN1, GPIO.LOW)
+        GPIO.output(MOTOR_IN2, GPIO.LOW)
+        
+        # Clean up GPIO
+        GPIO.cleanup()
+        print("GPIO cleaned up - motor should be stopped")
 
 def main():
+    """Main function with interactive motor control"""
+    motor = MotorEncoder()
+    
     try:
-        check_pin_states_on_boot()
-        setup_gpio()
+        print("\nMotor Control Commands:")
+        print("f - Forward")
+        print("r - Reverse") 
+        print("s - Stop")
+        print("b - Brake")
+        print("p - Print status")
+        print("z - Reset encoder count")
+        print("l - Save encoder log")
+        print("q - Quit")
+        print("\nStarting motor control loop...")
         
-        print("\nThis script will test motor behavior step by step.")
-        print("Observe the motor at each step and report what happens.")
+        while True:
+            command = input("\nEnter command: ").lower().strip()
+            
+            if command == 'f':
+                motor.motor_forward()
+            elif command == 'r':
+                motor.motor_reverse()
+            elif command == 's':
+                motor.stop_motor()
+            elif command == 'b':
+                motor.brake_motor()
+            elif command == 'p':
+                motor.print_status()
+            elif command == 'z':
+                motor.reset_encoder_count()
+            elif command == 'l':
+                motor.save_encoder_log()
+            elif command == 'q':
+                break
+            else:
+                print("Invalid command")
+            
+            # Always show current status after command
+            time.sleep(0.1)  # Small delay
+            motor.print_status()
+    
+    except KeyboardInterrupt:
+        print("\nProgram interrupted by user")
+    
+    finally:
+        motor.stop_motor()
+        motor.save_encoder_log()  # Auto-save log on exit
+        motor.cleanup()
+        print("Program ended")
+
+# Auto-test function
+def auto_test():
+    """Automated test sequence"""
+    motor = MotorEncoder()
+    
+    try:
+        print("Starting automated test sequence...")
         
-        test_motor_states()
+        # Test forward
+        print("\n1. Testing forward rotation for 3 seconds...")
+        motor.reset_encoder_count()
+        motor.motor_forward()
+        time.sleep(3)
+        motor.stop_motor()
+        motor.print_status()
         
-        choice = input("\nTest encoder readings? (y/n): ")
-        if choice.lower() == 'y':
-            test_encoder_readings()
+        time.sleep(1)
+        
+        # Test reverse
+        print("\n2. Testing reverse rotation for 3 seconds...")
+        motor.reset_encoder_count()
+        motor.motor_reverse()
+        time.sleep(3)
+        motor.stop_motor()
+        motor.print_status()
+        
+        # Save results
+        motor.save_encoder_log("auto_test_results.csv")
         
     except KeyboardInterrupt:
         print("\nTest interrupted")
-    except Exception as e:
-        print(f"Error: {e}")
+    
     finally:
-        # Ensure motor is stopped
-        try:
-            GPIO.output(MOTOR_IN1, GPIO.LOW)
-            GPIO.output(MOTOR_IN2, GPIO.LOW)
-            time.sleep(0.5)
-        except:
-            pass
-        GPIO.cleanup()
-        print("\nGPIO cleaned up")
+        motor.stop_motor()
+        motor.cleanup()
 
 if __name__ == "__main__":
-    main()
+    import sys
+    
+    if len(sys.argv) > 1 and sys.argv[1] == "test":
+        auto_test()
+    else:
+        main()
